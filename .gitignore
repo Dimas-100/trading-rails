@@ -1,0 +1,34 @@
+# secrets — a committed secret lives in git history forever
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+token*.json
+.webull-tokens/
+conf/
+
+# runtime data (paper state, run logs)
+data/
+
+# python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# logs (the Webull SDK writes *_sdk.log into the CWD)
+*.log
+*.log.*
+
+# editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
