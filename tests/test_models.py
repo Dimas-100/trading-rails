@@ -1,5 +1,4 @@
-from trading_rails.models import (Balance, Bar, Order, OrderType, PlaceResult, Position, Side, Signal,
-                                  TimeInForce)
+from trading_rails.models import Balance, Bar, Order, OrderType, PlaceResult, Position, Side, Signal, TimeInForce
 
 
 def test_order_normalises_symbol_and_defaults():
