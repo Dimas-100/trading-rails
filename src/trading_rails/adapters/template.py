@@ -44,13 +44,17 @@ class TemplateBroker:
         raise BrokerError("implement cancel()")
 
     def open_orders(self) -> list[dict]:
-        return []
+        """Every working order as a dict with OPEN_ORDER_KEYS. Raise on a payload you do not recognise:
+        unknown must never read as flat (an empty list would let the runner place a second exit/entry)."""
+        raise BrokerError("implement open_orders()")
 
     def positions(self) -> list[Position]:
-        return []
+        """Every held position. Raise on a payload you do not recognise: unknown must never read as flat."""
+        raise BrokerError("implement positions()")
 
     def balance(self) -> Balance:
-        return Balance(cash=0.0, buying_power=0.0, net_liq=0.0)
+        """Cash, buying power, net liquidation value. Unknown must never read as flat (zero)."""
+        raise BrokerError("implement balance()")
 
     def bars(self, symbol: str, n: int, as_of: str | None = None) -> list[Bar]:
         return []

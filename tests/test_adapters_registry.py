@@ -41,3 +41,13 @@ def test_webull_detection_needs_webull_core(monkeypatch):
     assert adapters._webull_installed() is False
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
     assert adapters._webull_installed() is True
+
+
+def test_template_adapter_fails_closed_until_implemented():
+    from trading_rails.adapters.template import TemplateBroker
+    from trading_rails.broker import BrokerError
+    b = TemplateBroker(client=None)
+    assert b.armed() is False
+    for method in (b.open_orders, b.positions, b.balance, b.account_id):
+        with pytest.raises(BrokerError, match="implement"):
+            method()
