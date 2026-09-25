@@ -106,3 +106,23 @@ def test_cancel_releases_reservation(tmp_path):
     assert b.cancel(cid)["cancelled"] is True and b.balance().buying_power == 10_000.0
     assert b.cancel("nope")["cancelled"] is False
     assert res.placed
+
+
+def test_symbol_without_bars_is_rejected_not_raised(tmp_path):
+    b = PaperBroker(Seq([]), tmp_path / "paper.json", starting_cash=10_000.0)      # a source with no bars at all
+    o = Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET)
+    pv = b.preview(o)
+    assert pv["ok"] is False and pv["last_price"] is None and "no price" in pv["reason"]
+    res = b.place(o)
+    assert res.placed is False and "no price" in res.raw["error"]
+    assert b.open_orders() == [] and b.balance().cash == 10_000.0
+
+
+def test_buy_gap_up_beyond_cash_is_rejected_at_fill_not_filled_negative(tmp_path):
+    b = PaperBroker(Seq(BARS), tmp_path / "paper.json", starting_cash=1000.0)
+    b.sync(as_of="2024-01-02")
+    assert b.place(Order(symbol="SPY", side=Side.BUY, quantity=10, order_type=OrderType.MARKET)).placed
+    fills = b.sync(as_of="2024-01-03")           # opens at 102 -> needs 1020 > 1000 cash
+    assert fills == [] and b.positions() == [] and b.open_orders() == []
+    assert b.balance().cash == 1000.0
+    assert b.state_view()["rejected"][0]["reason"].startswith("insufficient cash at fill")

@@ -23,8 +23,15 @@ class PaperBroker:
         self._as_of: str | None = None
         if self._path.exists():
             self._state = json.loads(self._path.read_text())
+            self._state.setdefault("rejected", [])
         else:
-            self._state = {"cash": float(starting_cash), "positions": {}, "open_orders": {}, "fills": []}
+            self._state = {
+                "cash": float(starting_cash),
+                "positions": {},
+                "open_orders": {},
+                "fills": [],
+                "rejected": [],
+            }
             self._save()
 
     # ── persistence ────────────────────────────────────────────────────────────
@@ -57,11 +64,15 @@ class PaperBroker:
 
     def _check(self, order: Order) -> tuple[bool, str, float]:
         try:
-            validate_order(order, last_price=self._last(order.symbol))
+            last = self._last(order.symbol)
+        except Exception as exc:
+            return False, f"no price for {order.symbol}: {exc}", 0.0
+        try:
+            validate_order(order, last_price=last)
         except OrderValidationError as exc:
             return False, str(exc), 0.0
         if Side(order.side) is Side.BUY:
-            ref = order.limit_price if order.limit_price is not None else self._last(order.symbol)
+            ref = order.limit_price if order.limit_price is not None else last
             need = order.quantity * ref
             free = self._state["cash"] - self.reserved_cash()
             if need > free + 1e-9:
@@ -74,7 +85,11 @@ class PaperBroker:
 
     def preview(self, order: Order) -> dict:
         ok, reason, reserved = self._check(order)
-        return {"ok": ok, "reason": reason, "reserved_cash": reserved, "last_price": self._last(order.symbol),
+        try:
+            last_price = self._last(order.symbol)
+        except Exception:
+            last_price = None
+        return {"ok": ok, "reason": reason, "reserved_cash": reserved, "last_price": last_price,
                 "cash_free": self._state["cash"] - self.reserved_cash()}
 
     def place(self, order: Order) -> PlaceResult:
@@ -132,6 +147,17 @@ class PaperBroker:
                     del self._state["open_orders"][cid]
                 continue
             price = round(price, 4)
+            # Check cash for BUY fills before applying
+            if Side(order.side) is Side.BUY:
+                debit = order.quantity * price + self._cost.commission
+                if debit > self._state["cash"] + 1e-9:
+                    del self._state["open_orders"][cid]
+                    cash = self._state["cash"]
+                    reason = f"insufficient cash at fill: need {debit:.2f}, have {cash:.2f}"
+                    self._state["rejected"].append(
+                        {"client_order_id": cid, "symbol": order.symbol, "ts": bar.ts, "reason": reason}
+                    )
+                    continue
             self._apply(order, price)
             del self._state["open_orders"][cid]
             fill = Fill(cid, order.symbol, Side(order.side), order.quantity, price, bar.ts)
