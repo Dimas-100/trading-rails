@@ -60,7 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="one cycle: signals -> orders -> validate -> preview -> (gate) -> place",
                          allow_abbrev=False)
     run.add_argument("--config", default="rails.toml")
-    run.add_argument("--paper", action="store_true", help="use the built-in PaperBroker (always dry-run safe)")
+    run.add_argument("--paper", action="store_true",
+                     help="submit to the built-in PaperBroker (play money; no typed CONFIRM)")
     run.add_argument("--broker", default=None, help="adapter name from `rails brokers` (dry-run unless --live)")
     run.add_argument("--live", action="store_true",
                      help="submit to the real broker; prompts for a typed CONFIRM per order; "
@@ -120,7 +121,7 @@ def run_cycle(args) -> int:
                              f"{broker.name!r} does not")
     run_confirm = True if (args.paper or args.live) else False
     live_ask = _typed_confirm if args.live else None
-    mode = "LIVE" if args.live else "dry-run"
+    mode = "LIVE" if args.live else ("paper" if args.paper else "dry-run")
     print(f"rails run: broker={broker.name} armed={broker.armed()} mode={mode} as_of={args.as_of or 'latest'}")
     report = execute(config, strategy, broker, source, confirm=run_confirm, ask=live_ask,
                      as_of=args.as_of, log_path=config.log_path)

@@ -125,7 +125,8 @@ def test_paper_replay_actually_places_and_fills(tmp_path, capsys, monkeypatch):
                   if sig(i).action is not None and sig(i).action.value == "BUY")
     next_ts = bars[[b.ts for b in bars].index(buy_ts) + 1].ts
     assert cli.main(["run", "--config", str(cfg), "--paper", "--as-of", buy_ts]) == 0
-    assert "placed=1" in capsys.readouterr().out
+    first = capsys.readouterr().out
+    assert "placed=1" in first and "mode=paper" in first
     assert cli.main(["run", "--config", str(cfg), "--paper", "--as-of", next_ts]) == 0
     capsys.readouterr()
     assert cli.main(["paper", "status", "--config", str(cfg)]) == 0
