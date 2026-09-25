@@ -39,7 +39,8 @@ def test_position_and_balance_parsing():
                               "last_price": "160"})
     assert p.symbol == "AAPL" and p.quantity == 3 and p.avg_cost == 150.5 and p.last_price == 160.0
     assert wb.position_from_row({"ticker": "X", "qty": "0", "unit_cost": "1"}) is None
-    assert wb.position_from_row({"quantity": "2"}) is None
+    with pytest.raises(wb.BrokerError):
+        wb.position_from_row({"quantity": "2"})
     b = wb.balance_from_body({"total_net_liquidation_value": "1000.5",
                               "account_currency_assets": [{"settled_cash": "400", "buying_power": "800"}]})
     assert b.net_liq == 1000.5 and b.cash == 400.0 and b.buying_power == 800.0
@@ -136,3 +137,43 @@ def test_non_200_becomes_broker_error():
     b = wb.WebullBroker(t, FakeData(), environ={})
     with pytest.raises(wb.BrokerError):
         b.preview(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET))
+
+
+def test_positions_and_open_orders_fail_closed_on_unknown_payloads():
+    class Env(FakeAccounts):
+        def get_account_position(self, acct):
+            return FakeRes({"data": [{"symbol": "SPY", "quantity": "2", "cost_price": "1"}]})
+    t = FakeTrade()
+    t.account_v2 = Env()
+    b = wb.WebullBroker(t, FakeData(), environ={})
+    assert [p.symbol for p in b.positions()] == ["SPY"]                    # data envelope is unwrapped
+
+    class Weird(FakeAccounts):
+        def get_account_position(self, acct): return FakeRes({"weird": True})
+    t2 = FakeTrade()
+    t2.account_v2 = Weird()
+    with pytest.raises(wb.BrokerError):
+        wb.WebullBroker(t2, FakeData(), environ={}).positions()           # non-list, non-envelope body
+
+    class NoSym(FakeOrders):
+        def get_order_open(self, acct): return FakeRes("nope")
+    t3 = FakeTrade()
+    t3.order_v2 = NoSym()
+    with pytest.raises(wb.BrokerError):
+        wb.WebullBroker(t3, FakeData(), environ={}).open_orders()
+
+
+def test_rows_with_quantity_but_no_symbol_raise():
+    with pytest.raises(wb.BrokerError):
+        wb.position_from_row({"quantity": "3", "cost_price": "10"})
+    assert wb.position_from_row({"quantity": "0"}) is None
+    with pytest.raises(wb.BrokerError):
+        wb.open_order_from_row({"client_order_id": "c9", "side": "SELL", "quantity": "1"})
+    assert wb.open_order_from_row({"status": "x"}) is None
+
+
+def test_place_refuses_when_not_armed():
+    b = wb.WebullBroker(FakeTrade(), FakeData(), environ={})
+    with pytest.raises(wb.BrokerError, match="not armed"):
+        b.place(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET))
+    assert b._trade.order_v2.calls == []

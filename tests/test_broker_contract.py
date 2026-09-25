@@ -11,4 +11,5 @@ def test_paper_and_webull_place_return_placeresult(tmp_path):
     paper = PaperBroker(SyntheticBars(n=10), tmp_path / "p.json", starting_cash=1000.0)
     paper.sync()
     assert isinstance(paper.place(o), PlaceResult)
-    assert isinstance(wb.WebullBroker(FakeTrade(), FakeData(), environ={}).place(o), PlaceResult)
+    webull = wb.WebullBroker(FakeTrade(), FakeData(), environ={"RAILS_LIVE_ENABLED": "1"})
+    assert isinstance(webull.place(o), PlaceResult)

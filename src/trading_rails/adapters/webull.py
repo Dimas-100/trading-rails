@@ -5,6 +5,9 @@ WEBULL_HOST (api.webull.com; a PaperTrade-portal key uses api.sandbox.webull.com
 (.webull-tokens — the SDK stores its 2FA token there; RELATIVE paths resolve against the CWD, so set an
 absolute path when you run from more than one directory), RAILS_LIVE_ENABLED (1 = armed).
 
+`from_env` loads a `.env` from the working directory (python-dotenv) before reading the variables above;
+a `RAILS_LIVE_ENABLED=1` line there arms the adapter, so keep it out of `.env` unless you mean it.
+
 Pure helpers (translation, parsing) sit at module level so they are unit-tested without the SDK; the SDK
 is imported lazily in `from_env` so this module loads in the base install."""
 from __future__ import annotations
@@ -82,8 +85,10 @@ def position_from_row(row: dict) -> Position | None:
     r = _leg(row)
     symbol = _str(r, ["symbol", "ticker"]).upper()
     qty = _num(r, ["quantity", "qty", "position", "shares"])
-    if not symbol or not qty or qty <= 0:
+    if not qty or qty <= 0:
         return None
+    if not symbol:
+        raise BrokerError(f"position row with quantity {qty} but no symbol: {row}")
     cost_keys = ["cost_price", "costPrice", "avgCost", "averageCost", "unitCost", "unit_cost", "cost"]
     return Position(symbol=symbol, quantity=int(qty), avg_cost=_num(r, cost_keys, 0.0),
                     last_price=_num(r, ["last_price", "lastPrice"]))
@@ -102,7 +107,10 @@ def balance_from_body(body: dict) -> Balance:
 def open_order_from_row(row: dict) -> dict | None:
     r = _leg(row)
     symbol = _str(r, ["symbol", "ticker"]).upper()
+    cid = _str(r, ["client_order_id", "order_id"])
     if not symbol:
+        if cid:
+            raise BrokerError(f"open order row without a symbol: {row}")
         return None
     qty = _num(r, ["quantity", "qty"], 0.0)
     otype = _FROM_WEBULL_TYPE.get(_str(r, ["order_type"]), _str(r, ["order_type"]))
@@ -110,6 +118,14 @@ def open_order_from_row(row: dict) -> dict | None:
            "order_type": otype, "quantity": int(qty or 0), "limit_price": _num(r, ["limit_price"]),
            "stop_price": _num(r, ["stop_price"]), "status": _str(r, ["status", "order_status"])}
     return {k: out[k] for k in OPEN_ORDER_KEYS}
+
+
+def _rows(body, what: str) -> list:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict) and isinstance(body.get("data"), list):
+        return body["data"]
+    raise BrokerError(f"unexpected {what} payload: {type(body).__name__}")
 
 
 def pick_cash_account(rows) -> str:
@@ -155,8 +171,8 @@ class WebullBroker:
     def from_env(cls, environ=None) -> "WebullBroker":
         environ = os.environ if environ is None else environ
         try:
-            from dotenv import load_dotenv
-            load_dotenv()
+            from dotenv import find_dotenv, load_dotenv
+            load_dotenv(find_dotenv(usecwd=True))
         except ImportError:
             pass
         try:
@@ -203,6 +219,8 @@ class WebullBroker:
         return body if isinstance(body, dict) else {"result": body}
 
     def place(self, order: Order) -> PlaceResult:
+        if not self.armed():
+            raise BrokerError("webull adapter is not armed (RAILS_LIVE_ENABLED=1)")
         body = _check(self._trade.order_v2.place_order(self.account_id(), [to_webull(order)]))
         oid = body.get("order_id") if isinstance(body, dict) else None
         return PlaceResult(placed=bool(oid), order_id=str(oid) if oid else None,
@@ -213,14 +231,12 @@ class WebullBroker:
         return body if isinstance(body, dict) else {"result": body}
 
     def open_orders(self) -> list[dict]:
-        rows = _check(self._trade.order_v2.get_order_open(self.account_id()))
-        rows = rows if isinstance(rows, list) else []
-        return [o for o in (open_order_from_row(r) for r in rows if isinstance(r, dict)) if o]
+        rows = _rows(_check(self._trade.order_v2.get_order_open(self.account_id())), "open-orders")
+        return [o for o in (open_order_from_row(r) for r in rows if isinstance(r, dict)) if o is not None]
 
     def positions(self) -> list[Position]:
-        rows = _check(self._trade.account_v2.get_account_position(self.account_id()))
-        rows = rows if isinstance(rows, list) else []
-        return [p for p in (position_from_row(r) for r in rows if isinstance(r, dict)) if p]
+        rows = _rows(_check(self._trade.account_v2.get_account_position(self.account_id())), "positions")
+        return [p for p in (position_from_row(r) for r in rows if isinstance(r, dict)) if p is not None]
 
     def balance(self) -> Balance:
         return balance_from_body(_check(self._trade.account_v2.get_account_balance(self.account_id())))
