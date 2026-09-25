@@ -39,6 +39,8 @@ consecutive trading days on the seeded synthetic series (`rails.example.toml`'s 
 paper broker fills against the next bar) and adds a protective stop, so `rails paper status` then shows an
 open IWM position. Drop `--as-of` when your data source is real (a CSV you refresh, or a broker adapter) and
 schedule `rails run` after the close with cron or Task Scheduler.
+If you later switch the same paper account from `--as-of` replays to daily runs on real data, start a fresh
+`data/paper.json` first; a state file that mixes the two prices and fills against the wrong bars.
 `rails run` exits 1 when any symbol errored and 2 when a position was left without its stop — wire your
 scheduler's alert to a non-zero exit.
 
