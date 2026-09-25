@@ -167,3 +167,23 @@ def test_armed_must_be_literal_true():
     b = Spy(armed=True)
     b._armed = "yes"
     assert gate_decision(b, True) == "refused"
+
+
+WORKING_SELL = {"client_order_id": "w1", "symbol": "SPY", "side": "SELL", "order_type": "MARKET",
+                "quantity": 10, "limit_price": None, "stop_price": None, "status": "open"}
+
+
+def test_a_working_sell_blocks_a_second_exit():
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[WORKING_SELL, STOP_ROW])
+    rep = run(b, Signal(Side.SELL, None, "out"), confirm=True)
+    assert b.calls == [] and b.placed() == [] and b.cancelled() == []
+    assert rep.skipped == 1 and rep.placed == 0
+    assert any(r["step"] == "exit" and r["status"] == "skipped" and r["detail"] == "exit already working"
+               for r in rep.rows)
+
+
+def test_a_working_sell_also_blocks_protect():
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[WORKING_SELL])
+    rep = run(b, Signal(None, 92.5, "long"), confirm=True)
+    assert b.placed() == [] and b.cancelled() == [] and rep.skipped == 1
+    assert any(r["detail"] == "exit already working" for r in rep.rows)

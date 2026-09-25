@@ -156,6 +156,7 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
     positions = {p.symbol: p for p in broker.positions() if p.quantity > 0}
     open_orders = broker.open_orders()
     working_buys = {r["symbol"] for r in open_orders if r.get("side") == "BUY"}
+    working_sells = {r["symbol"] for r in open_orders if r.get("side") == "SELL" and not _is_stop(r)}
     slots_used = len(set(positions) | working_buys)
 
     for symbol in config.symbols:
@@ -172,6 +173,11 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                        "stop": signal.stop_price, "last": last})
             held = positions.get(symbol)
             resting = [r for r in open_orders if r.get("symbol") == symbol and _is_stop(r)]
+
+            if held and symbol in working_sells:      # a re-run must never place a second full-position exit
+                report.skipped += 1
+                log(symbol, "exit", "skipped", "exit already working")
+                continue
 
             if held and signal.action == Side.SELL:
                 order = Order(symbol=symbol, side=Side.SELL, quantity=held.quantity, order_type=OrderType.MARKET)

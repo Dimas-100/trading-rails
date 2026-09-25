@@ -27,6 +27,8 @@ wall inside the adapter.
 
 ## Order of operations per symbol
 
+0. **Exit already working** — holding and a non-stop SELL is already working (a re-run after an exit was
+   placed): skip the symbol entirely, so a second full-position exit or a fresh stop is never stacked on it.
 1. **Exit** — holding and the strategy says SELL: cancel the resting stop, then a MARKET SELL for the full
    position. The cancel is issued only for a SELL the gate already allowed, so a position is never stripped
    of its stop unless it is being sold.
