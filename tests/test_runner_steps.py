@@ -29,6 +29,9 @@ class Spy:
     def placed(self): return [c[1] for c in self.calls if c[0] == "place"]
 
 
+TAG = {"AAA": 1.0, "BBB": 2.0}
+
+
 class PerSymbol:
     name = "per"
     def __init__(self, signals): self.signals = signals
@@ -40,11 +43,11 @@ class Bars:
     def __init__(self, prices): self.prices = prices
     def bars(self, symbol, n, as_of=None):
         p = self.prices[symbol]
-        return [Bar("2024-01-02", p, p, p, p, volume=hash(symbol) % 1000)]
+        return [Bar("2024-01-02", p, p, p, p, volume=TAG[symbol])]
     def last_price(self, symbol, as_of=None): return self.prices[symbol]
 
 
-def tag(symbol): return hash(symbol) % 1000
+def tag(symbol): return TAG[symbol]
 
 
 def cfg(**over):

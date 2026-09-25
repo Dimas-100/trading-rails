@@ -1,31 +1,34 @@
 """Behavioural gate tests: a spy broker records every call. Nothing reaches place/cancel unless
 confirm is the literal True AND the broker is armed AND (if given) ask() said yes."""
 from trading_rails.config import RunConfig
-from trading_rails.models import Balance, Bar, Order, OrderType, PlaceResult, Position, Side, Signal
+from trading_rails.models import Balance, Bar, Order, OrderType, PlaceResult, Position, Side, Signal, TimeInForce
 from trading_rails.runner import CycleReport, execute, gate_decision
 
 
 class Spy:
     name = "spy"
 
-    def __init__(self, armed=True, positions=(), open_orders=(), raise_in_preview=False):
+    def __init__(self, armed=True, positions=(), open_orders=(), cancel_ok=True, fail_sell=False,
+                 fail_restore=False):
         self._armed, self._positions, self._open = armed, list(positions), list(open_orders)
+        self.cancel_ok, self.fail_sell, self.fail_restore = cancel_ok, fail_sell, fail_restore
         self.calls = []
-        self.raise_in_preview = raise_in_preview
 
     def armed(self): return self._armed
     def account_id(self): return "spy"
     def preview(self, order):
-        if self.raise_in_preview and order.symbol == "BAD":
-            raise RuntimeError("boom")
         self.calls.append(("preview", order))
         return {"ok": True}
     def place(self, order):
         self.calls.append(("place", order))
+        if self.fail_sell and order.order_type == OrderType.MARKET:
+            return PlaceResult(placed=False, order_id=None, raw={"error": "market closed"})
+        if self.fail_restore and order.order_type == OrderType.STOP:
+            raise RuntimeError("down")
         return PlaceResult(placed=True, order_id="1")
     def cancel(self, cid):
         self.calls.append(("cancel", cid))
-        return {"cancelled": True}
+        return {"cancelled": self.cancel_ok}
     def open_orders(self): return self._open
     def positions(self): return self._positions
     def balance(self): return Balance(10_000.0, 10_000.0, 10_000.0)
@@ -111,3 +114,55 @@ def test_confirm_must_be_literal_true():
     b = Spy(armed=True)
     run(b, Signal(Side.BUY, 90.0, "go"), confirm="yes")
     assert b.placed() == []
+
+
+STOP_ROW = {"client_order_id": "s1", "symbol": "SPY", "side": "SELL", "order_type": "STOP",
+            "quantity": 10, "limit_price": None, "stop_price": 80.0, "status": "open"}
+
+
+def test_refused_cancel_skips_the_sell():
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[STOP_ROW], cancel_ok=False)
+    rep = run(b, Signal(Side.SELL, None, "out"), confirm=True)
+    assert [c[0] for c in b.calls] == ["preview", "cancel"]
+    assert b.placed() == [] and rep.placed == 0 and rep.skipped == 1
+    assert any(r["status"] == "not-cancelled" for r in rep.rows)
+
+
+def test_failed_sell_after_cancel_restores_the_stop():
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[STOP_ROW], fail_sell=True)
+    rep = run(b, Signal(Side.SELL, None, "out"), confirm=True)
+    kinds = [c[0] for c in b.calls]
+    assert kinds == ["preview", "cancel", "place", "place"]
+    restore = b.placed()[1][1]
+    assert restore.order_type is OrderType.STOP and restore.stop_price == 80.0 and restore.quantity == 10
+    assert restore.time_in_force is TimeInForce.GTC and restore.side is Side.SELL
+    assert rep.unprotected == 0 and any(r["status"] == "restored" for r in rep.rows)
+
+
+def test_failed_restore_is_loud():
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[STOP_ROW],
+            fail_sell=True, fail_restore=True)
+    rep = run(b, Signal(Side.SELL, None, "out"), confirm=True)
+    assert rep.unprotected == 1 and any(r["status"] == "unprotected" for r in rep.rows)
+
+
+def test_ask_must_return_literal_true():
+    b = Spy(armed=True)
+    rep = run(b, Signal(Side.BUY, 90.0, "go"), confirm=True, ask=lambda o, t: "no")
+    assert b.placed() == [] and rep.declined == 1
+    b2 = Spy(armed=True)
+    run(b2, Signal(Side.BUY, 90.0, "go"), confirm=True, ask=lambda o, t: True)
+    assert len(b2.placed()) == 1
+
+
+def test_ask_is_not_called_on_a_refusal():
+    asked = []
+    b = Spy(armed=False)
+    run(b, Signal(Side.BUY, 90.0, "go"), confirm=True, ask=lambda o, t: asked.append(t) or True)
+    assert asked == [] and b.placed() == []
+
+
+def test_armed_must_be_literal_true():
+    b = Spy(armed=True)
+    b._armed = "yes"
+    assert gate_decision(b, True) == "refused"

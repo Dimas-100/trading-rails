@@ -30,14 +30,16 @@ class CycleReport:
     declined: int = 0
     skipped: int = 0
     errors: int = 0
+    unprotected: int = 0
 
 
 def gate_decision(broker: Broker, confirm) -> str:
-    """'submit' only when should_submit(confirm) AND the broker is armed; 'dry-run' when not confirmed;
-    'refused' when confirmed but the broker is not armed. Each wall only adds strictness."""
+    """'submit' only when should_submit(confirm) AND broker.armed() is the literal True; 'dry-run' when
+    not confirmed; 'refused' when confirmed but the broker is not armed (armed() must answer the literal
+    True, not merely something truthy). Each wall only adds strictness."""
     if not should_submit(confirm):
         return "dry-run"
-    if not broker.armed():
+    if broker.armed() is not True:
         return "refused"
     return "submit"
 
@@ -66,8 +68,35 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                 fh.write(json.dumps(row, default=str) + "\n")
         return row
 
-    def submit(symbol: str, step: str, order: Order, last: float, cancel_first: str | None = None) -> bool:
-        """validate -> preview -> gate -> ask -> (cancel) -> place. Returns True when placed."""
+    def restore_stop(symbol: str, row: dict, last: float) -> None:
+        """Re-place the stop that was just cancelled ahead of a SELL that then failed or raised, so a
+        cancel-then-place failure never leaves a position silently unprotected."""
+        restore = Order(symbol=symbol, side=Side.SELL, quantity=int(row["quantity"]), order_type=OrderType.STOP,
+                        stop_price=float(row["stop_price"]), time_in_force=TimeInForce.GTC)
+        try:
+            validate_order(restore, last_price=last, max_price_deviation=config.max_price_deviation,
+                           max_notional=config.max_order_notional)
+        except OrderValidationError as exc:
+            log(symbol, "protect", "invalid", str(exc), restore)
+            report.unprotected += 1
+            return
+        try:
+            rresult = broker.place(restore)
+        except Exception as exc:
+            log(symbol, "protect", "unprotected", f"{type(exc).__name__}: {exc}", restore)
+            report.unprotected += 1
+            return
+        if rresult.placed:
+            log(symbol, "protect", "restored", describe(restore), restore, rresult.raw)
+        else:
+            log(symbol, "protect", "unprotected", json.dumps(rresult.raw, default=str)[:500], restore)
+            report.unprotected += 1
+
+    def submit(symbol: str, step: str, order: Order, last: float, cancel_first: dict | None = None) -> bool:
+        """validate -> preview -> gate -> ask -> (cancel) -> place. Returns True when placed.
+        `cancel_first`, when given, is the WHOLE resting stop's open-order row (not just its id): a
+        refused/raising cancel skips the SELL entirely (no double exit, logged 'not-cancelled'); a SELL
+        that then fails or raises after a successful cancel triggers restore_stop so the stop comes back."""
         try:
             validate_order(order, last_price=last, max_price_deviation=config.max_price_deviation,
                            max_notional=config.max_order_notional)
@@ -80,25 +109,45 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
         if decision != "submit":
             log(symbol, step, decision, describe(order), order)
             if cancel_first:
-                log(symbol, "cancel", decision, f"would cancel {cancel_first}")
+                log(symbol, "cancel", decision, f"would cancel {cancel_first['client_order_id']}")
                 report.dry_run += decision == "dry-run"
                 report.refused += decision == "refused"
             report.dry_run += decision == "dry-run"
             report.refused += decision == "refused"
             return False
-        if ask is not None and not ask(order, describe(order)):
+        if ask is not None and ask(order, describe(order)) is not True:
             log(symbol, step, "declined", describe(order), order)
             report.declined += 1
             return False
+
         if cancel_first:
-            res = broker.cancel(cancel_first)
-            log(symbol, "cancel", "cancelled", cancel_first, None, res)
-        result = broker.place(order)
+            cid = cancel_first["client_order_id"]
+            try:
+                res = broker.cancel(cid)
+            except Exception as exc:
+                log(symbol, "cancel", "not-cancelled", f"{type(exc).__name__}: {exc}")
+                report.skipped += 1
+                return False
+            if isinstance(res, dict) and not res.get("cancelled", True):
+                log(symbol, "cancel", "not-cancelled", json.dumps(res, default=str)[:500])
+                report.skipped += 1
+                return False
+            log(symbol, "cancel", "cancelled", cid, None, res)
+
+        try:
+            result = broker.place(order)
+        except Exception as exc:
+            log(symbol, step, "error", f"{type(exc).__name__}: {exc}", order)
+            if cancel_first:
+                restore_stop(symbol, cancel_first, last)
+            return False
         if result.placed:
             report.placed += 1
             log(symbol, step, "placed", result.order_id or "", order, result.raw)
             return True
         log(symbol, step, "not-placed", json.dumps(result.raw, default=str)[:500], order, result.raw)
+        if cancel_first:
+            restore_stop(symbol, cancel_first, last)
         return False
 
     if hasattr(broker, "sync"):
@@ -125,7 +174,7 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
 
             if held and signal.action == Side.SELL:
                 order = Order(symbol=symbol, side=Side.SELL, quantity=held.quantity, order_type=OrderType.MARKET)
-                submit(symbol, "exit", order, last, cancel_first=resting[0]["client_order_id"] if resting else None)
+                submit(symbol, "exit", order, last, cancel_first=resting[0] if resting else None)
                 continue
 
             if held and not resting and signal.stop_price is not None:
