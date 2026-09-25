@@ -171,3 +171,15 @@ def test_typed_confirm_treats_eof_and_interrupt_as_decline(monkeypatch):
         raise KeyboardInterrupt
     monkeypatch.setattr("builtins.input", raise_interrupt)
     assert cli._typed_confirm(o, "x") is False
+
+
+def test_run_exit_code_flags_errors_and_unprotected_positions(tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "rails.toml"
+    cfg.write_text('[run]\nsymbols=["SPY"]\ndollars_per_position=1000\nmax_positions=1\nmax_order_notional=2000\n')
+    runner_mod = __import__("trading_rails.runner", fromlist=["CycleReport"])
+    monkeypatch.chdir(tmp_path)
+    for errors, unprotected, code in ((0, 0, 0), (1, 0, 1), (0, 1, 2), (3, 1, 2)):
+        rep = runner_mod.CycleReport(as_of=None, errors=errors, unprotected=unprotected)
+        monkeypatch.setattr(cli, "execute", lambda *a, _rep=rep, **kw: _rep)
+        assert cli.main(["run", "--config", str(cfg), "--paper"]) == code, (errors, unprotected)
+    capsys.readouterr()

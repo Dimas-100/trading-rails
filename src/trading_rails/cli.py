@@ -131,7 +131,7 @@ def run_cycle(args) -> int:
         print(f"  {row['symbol']:<6} {row['step']:<8} {row['status']:<11} {row['detail']}")
     print(f"placed={report.placed} dry_run={report.dry_run} refused={report.refused} declined={report.declined} "
           f"skipped={report.skipped} errors={report.errors} unprotected={report.unprotected}")
-    return 0
+    return 2 if report.unprotected else (1 if report.errors else 0)
 
 
 def paper_status(args) -> int:
