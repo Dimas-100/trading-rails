@@ -12,6 +12,9 @@ conf/
 # runtime data (paper state, run logs)
 data/
 
+# local run config (copy of the tracked rails.example.toml)
+rails.toml
+
 # python
 .venv/
 venv/
