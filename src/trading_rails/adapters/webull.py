@@ -107,9 +107,9 @@ def balance_from_body(body: dict) -> Balance:
 def open_order_from_row(row: dict) -> dict | None:
     r = _leg(row)
     symbol = _str(r, ["symbol", "ticker"]).upper()
-    cid = _str(r, ["client_order_id", "order_id"])
+    cid = _str(r, ["client_order_id", "order_id", "combo_order_id"])
     if not symbol:
-        if cid:
+        if cid:                    # an identified order we cannot attribute to a symbol: fail closed
             raise BrokerError(f"open order row without a symbol: {row}")
         return None
     qty = _num(r, ["quantity", "qty"], 0.0)
@@ -118,6 +118,20 @@ def open_order_from_row(row: dict) -> dict | None:
            "order_type": otype, "quantity": int(qty or 0), "limit_price": _num(r, ["limit_price"]),
            "stop_price": _num(r, ["stop_price"]), "status": _str(r, ["status", "order_status"])}
     return {k: out[k] for k in OPEN_ORDER_KEYS}
+
+
+def flatten_combo_rows(rows: list) -> list:
+    """Webull's open-order payload wraps each order in a combo (`combo_type`, `combo_order_id`, `orders`: [legs]).
+    Expand every row carrying a list under `orders` into one row per leg, the leg merged OVER the wrapper
+    (minus `orders`); rows without `orders` pass through unchanged."""
+    out = []
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("orders"), list):
+            base = {k: v for k, v in row.items() if k != "orders"}
+            out.extend({**base, **leg} for leg in row["orders"] if isinstance(leg, dict))
+        else:
+            out.append(row)
+    return out
 
 
 def _rows(body, what: str) -> list:
@@ -232,7 +246,8 @@ class WebullBroker:
 
     def open_orders(self) -> list[dict]:
         rows = _rows(_check(self._trade.order_v2.get_order_open(self.account_id())), "open-orders")
-        return [o for o in (open_order_from_row(r) for r in rows if isinstance(r, dict)) if o is not None]
+        legs = flatten_combo_rows(rows)
+        return [o for o in (open_order_from_row(r) for r in legs if isinstance(r, dict)) if o is not None]
 
     def positions(self) -> list[Position]:
         rows = _rows(_check(self._trade.account_v2.get_account_position(self.account_id())), "positions")

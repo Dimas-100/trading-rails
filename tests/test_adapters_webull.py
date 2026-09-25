@@ -198,3 +198,31 @@ def test_from_env_loads_only_the_cwd_dotenv_never_a_parent(tmp_path, monkeypatch
         assert os.environ.get(key) == "cwd"                 # the working directory's .env was
     finally:
         os.environ.pop(key, None)
+
+
+# The live get_order_open shape (a real-account dry run): a list of combo wrappers, each with its legs.
+LIVE_OPEN = [{"combo_type": "NORMAL", "combo_order_id": "combo-1", "orders": [
+    {"client_order_id": "leg-cid-1", "symbol": "JPM", "side": "SELL", "order_type": "STOP_LOSS", "quantity": "1",
+     "stop_price": "200.00", "status": "WORKING"}]}]
+
+
+def test_open_orders_flatten_the_live_combo_wrapper():
+    class Live(FakeOrders):
+        def get_order_open(self, acct, page_size=None, **kwargs): return FakeRes(LIVE_OPEN)
+    t = FakeTrade()
+    t.order_v2 = Live()
+    rows = wb.WebullBroker(t, FakeData(), environ={}).open_orders()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["symbol"] == "JPM" and r["order_type"] == "STOP" and r["stop_price"] == 200.0
+    assert r["client_order_id"] == "leg-cid-1" and r["side"] == "SELL" and r["quantity"] == 1
+    assert r["status"] == "WORKING"
+    plain = {"client_order_id": "p", "symbol": "SPY", "side": "BUY", "order_type": "MARKET", "quantity": "1"}
+    two_legs = {"combo_order_id": "c", "status": "WORKING", "orders": [{"client_order_id": "a", "symbol": "X"},
+                                                                       {"client_order_id": "b", "symbol": "Y"}]}
+    flat = wb.flatten_combo_rows([plain, two_legs])
+    assert flat[0] is plain                                              # no `orders`: passes through
+    assert [(f["client_order_id"], f["combo_order_id"], f["status"]) for f in flat[1:]] == [
+        ("a", "c", "WORKING"), ("b", "c", "WORKING")] and all("orders" not in f for f in flat)
+    with pytest.raises(wb.BrokerError, match="without a symbol"):    # a wrapper whose legs are unreadable
+        wb.open_order_from_row({"combo_type": "NORMAL", "combo_order_id": "c", "orders": None})
