@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "trading-rails"
 version = "0.1.0"
 description = "Broker-agnostic trading toolkit with safety rails: dry-run by default, arming flag, typed CONFIRM."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = []
 
