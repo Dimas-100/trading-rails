@@ -1,6 +1,8 @@
 """One cycle of the trading loop. The ONLY module that calls broker.place / broker.cancel, and it does so
 only after: validate_order -> broker.preview -> gate_decision (should_submit(confirm) AND broker.armed())
--> optional ask() hook (can only decline). Order of operations per symbol: exits, protect, entries."""
+-> optional ask() hook (can only decline); the one exception, restore_stop, re-places a stop that a confirmed
+SELL just cancelled, and only after that SELL failed. Order of operations per symbol: exits, protect, entries.
+tests/test_gate_hardening.py pins this by AST."""
 from __future__ import annotations
 
 import json

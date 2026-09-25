@@ -21,7 +21,9 @@ to the runner. A real `--broker NAME` run without `--live` never sets confirm Tr
 | Typed CONFIRM | `cli._typed_confirm` via the runner's `ask` hook | interactive terminal + the exact word, per order, with the preview text showing the last price and the estimated notional; the hook approves only on the literal `True` — anything else is `declined` |
 
 `runner.execute` is the only code that calls `broker.place` / `broker.cancel`, and only after
-`validate_order` → `broker.preview` → the three walls. Defense in depth: `WebullBroker.place()` independently
+`validate_order` → `broker.preview` → the three walls — the one exception being `restore_stop` (below), which
+re-places a stop that a confirmed SELL just cancelled, only after that SELL failed. `tests/test_gate_hardening.py`
+pins it by AST. Defense in depth: `WebullBroker.place()` independently
 raises `BrokerError` when `armed()` is false, so even a caller that bypassed the runner's gate still hits a
 wall inside the adapter.
 
