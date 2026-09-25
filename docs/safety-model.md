@@ -36,8 +36,8 @@ wall inside the adapter.
 
 ## Exit-path failure handling
 
-The cancel-then-sell sequence is deliberately conservative about a position's protection (see `runner.submit`
-and `runner.restore_stop`):
+The cancel-then-sell sequence is deliberately conservative about a position's protection (see the `submit` and
+`restore_stop` helpers inside `runner.execute`):
 
 - If `broker.cancel` **raises**, or answers a dict with `cancelled: False`, the resting stop is treated as
   still in place and the SELL is **not placed** — logged as `cancel not-cancelled` — so a position is never
