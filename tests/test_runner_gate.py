@@ -187,3 +187,13 @@ def test_a_working_sell_also_blocks_protect():
     rep = run(b, Signal(None, 92.5, "long"), confirm=True)
     assert b.placed() == [] and b.cancelled() == [] and rep.skipped == 1
     assert any(r["detail"] == "exit already working" for r in rep.rows)
+
+
+def test_more_than_one_resting_stop_refuses_the_exit():
+    second = dict(STOP_ROW, client_order_id="s2", quantity=5, stop_price=85.0)
+    b = Spy(armed=True, positions=[Position("SPY", 10, 90.0, 100.0)], open_orders=[STOP_ROW, second])
+    rep = run(b, Signal(Side.SELL, None, "out"), confirm=True)
+    assert b.calls == [] and b.cancelled() == [] and b.placed() == []
+    assert rep.skipped == 1 and rep.placed == 0
+    assert any(r["step"] == "exit" and r["status"] == "skipped"
+               and r["detail"] == "2 resting stops — resolve manually" for r in rep.rows)

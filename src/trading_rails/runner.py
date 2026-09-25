@@ -180,6 +180,10 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                 continue
 
             if held and signal.action == Side.SELL:
+                if len(resting) > 1:              # cancelling only one would leave a stop working behind the SELL
+                    report.skipped += 1
+                    log(symbol, "exit", "skipped", f"{len(resting)} resting stops — resolve manually")
+                    continue
                 order = Order(symbol=symbol, side=Side.SELL, quantity=held.quantity, order_type=OrderType.MARKET)
                 submit(symbol, "exit", order, last, cancel_first=resting[0] if resting else None)
                 continue

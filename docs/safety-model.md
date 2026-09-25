@@ -31,7 +31,8 @@ wall inside the adapter.
    placed): skip the symbol entirely, so a second full-position exit or a fresh stop is never stacked on it.
 1. **Exit** — holding and the strategy says SELL: cancel the resting stop, then a MARKET SELL for the full
    position. The cancel is issued only for a SELL the gate already allowed, so a position is never stripped
-   of its stop unless it is being sold.
+   of its stop unless it is being sold. With more than one resting stop the exit is refused (`exit skipped`,
+   "resolve manually") rather than cancelling one and leaving another working behind the SELL.
 2. **Protect** — holding, no resting stop, the strategy carries a stop level: a STOP SELL GTC.
 3. **Entry** — not holding, the strategy says BUY, a slot is free: a MARKET BUY sized
    `floor(dollars_per_position / last_price)`.
