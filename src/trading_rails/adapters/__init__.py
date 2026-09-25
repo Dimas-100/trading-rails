@@ -8,7 +8,12 @@ from ..config import RunConfig
 
 
 def _webull_installed() -> bool:
-    return importlib.util.find_spec("webull") is not None
+    """True only when the official SDK's `webull.core` resolves (an unrelated package named `webull` does
+    not count). find_spec on a dotted name imports the parent, which raises when `webull` is absent."""
+    try:
+        return importlib.util.find_spec("webull.core") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def available() -> dict[str, str]:

@@ -26,3 +26,18 @@ def test_get_broker_unknown_and_missing_extra(monkeypatch):
     with pytest.raises(ImportError) as exc:
         adapters.get_broker("webull", CFG)
     assert "[webull]" in str(exc.value)
+
+
+def test_webull_detection_needs_webull_core(monkeypatch):
+    import importlib.util
+    seen = []
+
+    def missing_parent(name, *a):
+        seen.append(name)
+        raise ModuleNotFoundError(f"No module named {name.split('.')[0]!r}")
+    monkeypatch.setattr(importlib.util, "find_spec", missing_parent)
+    assert adapters._webull_installed() is False and seen == ["webull.core"]
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None)   # a `webull` without `core`
+    assert adapters._webull_installed() is False
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
+    assert adapters._webull_installed() is True
