@@ -102,6 +102,10 @@ paper state's `rejected` list) so paper cash can never go negative.
 
 - Another broker: `docs/adding-a-broker.md` (implement 8 + 2 methods, register the name).
 - Another strategy: `docs/adding-a-strategy.md` (`warmup()`, `on_bars(bars) -> Signal`, `@register`).
+- Any AI, any brokerage: nothing here depends on a particular model or broker. A strategy can be hand-written or
+  driven by whatever model you like, as long as it only sees bars and answers a `Signal`; the runner's walls apply
+  to it unchanged. Assistant-facing instructions live in `AGENTS.md` (read by Claude Code, Codex, Cursor, Gemini
+  CLI and others); `CLAUDE.md` simply imports it.
 
 ## Disclaimer
 
