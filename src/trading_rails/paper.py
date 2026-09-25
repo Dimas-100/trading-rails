@@ -22,7 +22,6 @@ class PaperBroker:
         self._source = source
         self._path = Path(state_path)
         self._cost = cost
-        self._as_of: str | None = None
         if self._path.exists():
             self._state = json.loads(self._path.read_text())
             self._state.setdefault("rejected", [])
@@ -35,6 +34,9 @@ class PaperBroker:
                 "rejected": [],
             }
             self._save()
+        # The replay date of the last sync (None = latest), so a fresh instance (`rails paper status`) prices
+        # at the day the account was replayed to, not at the source's last bar. Absent in older state files.
+        self._as_of: str | None = self._state.get("as_of")
 
     # ── persistence ────────────────────────────────────────────────────────────
     def _save(self) -> None:
@@ -136,6 +138,7 @@ class PaperBroker:
         without filling expires on it; a GTC order keeps walking. Skipping days therefore never misses a stop.
         Bars are fetched once per symbol per sync."""
         self._as_of = as_of
+        self._state["as_of"] = as_of
         fills: list[Fill] = []
         window: dict[str, list[Bar]] = {}
         for cid, o in list(self._state["open_orders"].items()):

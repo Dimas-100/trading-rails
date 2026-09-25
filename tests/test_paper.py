@@ -172,3 +172,17 @@ def test_sync_fetches_bars_once_per_symbol(tmp_path):
         b.place(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET))
     Counting.calls = 0
     assert len(b.sync(as_of="2024-01-03")) == 3 and Counting.calls == 1
+
+
+def test_a_fresh_instance_prices_at_the_last_synced_date(tmp_path):
+    b = broker(tmp_path)
+    b.sync(as_of="2024-01-02")
+    b.place(Order(symbol="SPY", side=Side.BUY, quantity=10, order_type=OrderType.MARKET))
+    b.sync(as_of="2024-01-03")
+    again = PaperBroker(Seq(BARS), tmp_path / "paper.json")
+    assert again.positions()[0].last_price == 103.0            # 01-03's close, not the series' last bar (92)
+    assert again.balance().net_liq == 10_000.0 - 1020.0 + 10 * 103.0
+    older = json.loads((tmp_path / "paper.json").read_text())
+    older.pop("as_of")                                        # a state file written before as_of was stored
+    (tmp_path / "paper.json").write_text(json.dumps(older))
+    assert PaperBroker(Seq(BARS), tmp_path / "paper.json").positions()[0].last_price == 92.0
