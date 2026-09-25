@@ -104,10 +104,11 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
             log(symbol, step, "invalid", str(exc), order)
             return False
         preview = broker.preview(order)
-        log(symbol, step, "preview", describe(order), order, preview)
+        text = f"{describe(order)} (last {last:.2f}, ~${order.quantity * last:,.2f})"
+        log(symbol, step, "preview", text, order, preview)
         decision = gate_decision(broker, confirm)
         if decision != "submit":
-            log(symbol, step, decision, describe(order), order)
+            log(symbol, step, decision, text, order)
             if cancel_first:
                 log(symbol, "cancel", decision, f"would cancel {cancel_first['client_order_id']}")
                 report.dry_run += decision == "dry-run"
@@ -115,8 +116,8 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
             report.dry_run += decision == "dry-run"
             report.refused += decision == "refused"
             return False
-        if ask is not None and ask(order, describe(order)) is not True:
-            log(symbol, step, "declined", describe(order), order)
+        if ask is not None and ask(order, text) is not True:
+            log(symbol, step, "declined", text, order)
             report.declined += 1
             return False
 

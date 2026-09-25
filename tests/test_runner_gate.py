@@ -105,6 +105,7 @@ def test_ask_hook_can_only_decline_and_is_never_called_on_dry_run():
     b = Spy(armed=True)
     rep = run(b, Signal(Side.BUY, 90.0, "go"), confirm=True, ask=no)
     assert b.placed() == [] and rep.declined == 1 and asked and "BUY 10 SPY MARKET" in asked[0]
+    assert "last 100.00" in asked[0] and "$1,000.00" in asked[0]
     asked.clear()
     run(Spy(armed=True), Signal(Side.BUY, 90.0, "go"), confirm=False, ask=no)
     assert asked == []

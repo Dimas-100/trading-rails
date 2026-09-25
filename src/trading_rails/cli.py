@@ -20,7 +20,10 @@ def _typed_confirm(order: Order, text: str) -> bool:
     if not sys.stdin.isatty():
         print("refusing to submit: --live needs an interactive terminal (stdin is not a TTY)")
         return False
-    answer = input(f"Type CONFIRM to submit {text}: ")
+    try:
+        answer = input(f"Type CONFIRM to submit {text}: ")
+    except (EOFError, KeyboardInterrupt):
+        return False
     return answer.strip() == "CONFIRM"
 
 
@@ -38,10 +41,11 @@ def _broker_from_name(name: str, config: RunConfig):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="rails", description="Broker-agnostic trading toolkit with safety rails.")
+    p = argparse.ArgumentParser(prog="rails", description="Broker-agnostic trading toolkit with safety rails.",
+                                allow_abbrev=False)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    bt = sub.add_parser("backtest", help="replay a strategy over bars (offline)")
+    bt = sub.add_parser("backtest", help="replay a strategy over bars (offline)", allow_abbrev=False)
     bt.add_argument("--strategy", default="sma_cross")
     bt.add_argument("--symbol", default="SPY")
     bt.add_argument("--source", default="synthetic", help="synthetic | csv:PATH")
@@ -53,7 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--list", action="store_true", help="list registered strategies and exit")
     bt.set_defaults(func=run_backtest)
 
-    run = sub.add_parser("run", help="one cycle: signals -> orders -> validate -> preview -> (gate) -> place")
+    run = sub.add_parser("run", help="one cycle: signals -> orders -> validate -> preview -> (gate) -> place",
+                         allow_abbrev=False)
     run.add_argument("--config", default="rails.toml")
     run.add_argument("--paper", action="store_true", help="use the built-in PaperBroker (always dry-run safe)")
     run.add_argument("--broker", default=None, help="adapter name from `rails brokers` (dry-run unless --live)")
@@ -63,13 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--as-of", default=None, help="ISO date: use bars up to this date (paper replay)")
     run.set_defaults(func=run_cycle)
 
-    paper = sub.add_parser("paper", help="paper account tools")
+    paper = sub.add_parser("paper", help="paper account tools", allow_abbrev=False)
     psub = paper.add_subparsers(dest="paper_cmd", required=True)
-    st = psub.add_parser("status", help="cash, positions, open orders")
+    st = psub.add_parser("status", help="cash, positions, open orders", allow_abbrev=False)
     st.add_argument("--config", default="rails.toml")
     st.set_defaults(func=paper_status)
 
-    br = sub.add_parser("brokers", help="list broker adapters")
+    br = sub.add_parser("brokers", help="list broker adapters", allow_abbrev=False)
     br.set_defaults(func=list_brokers)
     return p
 
@@ -101,6 +106,8 @@ def run_cycle(args) -> int:
         raise SystemExit("choose exactly one of --paper or --broker NAME")
     if args.live and not args.broker:
         raise SystemExit("--live applies to --broker NAME only")
+    if args.as_of and not args.paper:
+        raise SystemExit("--as-of is a paper-replay option; a broker run always prices from the broker")
     config = load_config(args.config)
     strategy = get_strategy(config.strategy, **config.strategy_params)
     if args.paper:
@@ -108,11 +115,14 @@ def run_cycle(args) -> int:
     else:
         broker = _broker_from_name(args.broker, config)
         source = broker if hasattr(broker, "bars") else _source_from_spec(config.data_source)
-    live_confirm = True if args.live else False
+        if args.live and source is not broker:
+            raise SystemExit(f"--live needs a broker that serves its own bars/prices (BarSource); "
+                             f"{broker.name!r} does not")
+    run_confirm = True if (args.paper or args.live) else False
     live_ask = _typed_confirm if args.live else None
     mode = "LIVE" if args.live else "dry-run"
     print(f"rails run: broker={broker.name} armed={broker.armed()} mode={mode} as_of={args.as_of or 'latest'}")
-    report = execute(config, strategy, broker, source, confirm=live_confirm, ask=live_ask,
+    report = execute(config, strategy, broker, source, confirm=run_confirm, ask=live_ask,
                      as_of=args.as_of, log_path=config.log_path)
     for row in report.rows:
         if row["status"] in ("signal", "ok") or row["step"] == "signal":
