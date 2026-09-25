@@ -73,3 +73,17 @@ def test_no_trades_metrics_and_format():
     assert r.trades == [] and r.metrics["trades"] == 0 and r.metrics["win_rate_pct"] == 0.0
     text = format_metrics(r)
     assert "trades" in text and "max_drawdown_pct" in text
+
+
+def test_costs_reconcile_pnl_with_equity_and_slip_against_the_trader():
+    from trading_rails.fills import CostModel
+    bars = bars_from([(10, 10, 10, 10), (10, 10, 10, 10), (10, 10, 10, 10), (12, 12, 12, 12), (12, 12, 12, 12)])
+    strat = Scripted({1: Signal(Side.BUY, None, "go"), 3: Signal(Side.SELL, None, "out")})
+    cost = CostModel(slippage_pct=1.0, commission=1.0)
+    r = run(strat, bars, starting_equity=1000.0, cost=cost)
+    t = r.trades[0]
+    assert t.entry_price == pytest.approx(10.1)        # slipped up on the buy
+    assert t.exit_price == pytest.approx(11.88)        # slipped down on the sell
+    assert t.quantity == 99                            # floor(1000 / 10.1)
+    assert t.pnl == pytest.approx(t.quantity * (11.88 - 10.1) - 2.0)
+    assert sum(x.pnl for x in r.trades) == pytest.approx(r.final_equity - r.starting_equity)

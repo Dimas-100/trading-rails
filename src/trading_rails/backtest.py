@@ -50,7 +50,7 @@ def run(strategy: Strategy, bars: list[Bar], *, starting_equity: float = 100_000
 
     def close_position(i: int, price: float, reason: str) -> None:
         nonlocal cash, qty, stop, stop_set_at
-        pnl = qty * (price - entry_price) - cost.commission
+        pnl = qty * (price - entry_price) - 2 * cost.commission
         cash += qty * price - cost.commission
         trades.append(Trade(entry_ts, bars[i].ts, entry_price, price, qty, pnl,
                             (price / entry_price - 1) * 100.0, reason))
