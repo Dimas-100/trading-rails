@@ -83,8 +83,9 @@ Notes: a developer-portal app key is production-only; a PaperTrade-portal key wo
 `WEBULL_HOST=api.sandbox.webull.com`. Market data needs the free "Nasdaq Basic – Non Display" OpenAPI
 entitlement (the adapter's error message says so). The SDK keeps its 2FA token in `WEBULL_OPENAPI_TOKEN_DIR`;
 use an absolute path if you run from more than one directory. `positions()`/`open_orders()` fail closed — an
-unrecognised account payload raises rather than reading as "flat" — and open-order reads may be paged by the
-broker (untested against a large book), so keep the number of resting orders small.
+unrecognised account payload raises rather than reading as "flat" — and the open-order read asks for one
+100-row page and refuses to trade when a full page comes back (the view may be partial), so keep fewer than
+100 orders working.
 
 ## Data
 

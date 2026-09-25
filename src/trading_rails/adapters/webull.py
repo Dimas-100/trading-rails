@@ -20,6 +20,7 @@ from ..data import sort_bars
 from ..models import Balance, Bar, Order, OrderType, PlaceResult, Position, Side, TimeInForce
 
 DEFAULT_HOST = "api.webull.com"
+OPEN_ORDERS_PAGE = 100   # rows asked of get_order_open (the SDK defaults to 10); a full page is refused
 ENTITLEMENT_MESSAGE = ("Webull market data is not entitled for this app key. Claim the FREE 'Nasdaq Basic - "
                        "Non Display' tier under OpenAPI Advanced Quotes on the Webull developer site.")
 _TO_WEBULL_TYPE = {"MARKET": "MARKET", "LIMIT": "LIMIT", "STOP": "STOP_LOSS", "STOP_LIMIT": "STOP_LOSS_LIMIT"}
@@ -245,7 +246,11 @@ class WebullBroker:
         return body if isinstance(body, dict) else {"result": body}
 
     def open_orders(self) -> list[dict]:
-        rows = _rows(_check(self._trade.order_v2.get_order_open(self.account_id())), "open-orders")
+        body = _check(self._trade.order_v2.get_order_open(self.account_id(), page_size=OPEN_ORDERS_PAGE))
+        rows = _rows(body, "open-orders")
+        if len(rows) >= OPEN_ORDERS_PAGE:   # the SDK pages this read; a full page may hide more working orders
+            raise BrokerError(f"open orders: {OPEN_ORDERS_PAGE} rows returned — the view may be paged; "
+                              "refusing to trade on a partial view")
         legs = flatten_combo_rows(rows)
         return [o for o in (open_order_from_row(r) for r in legs if isinstance(r, dict)) if o is not None]
 

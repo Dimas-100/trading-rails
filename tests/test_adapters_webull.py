@@ -91,7 +91,8 @@ class FakeOrders:
         self.calls.append(("cancel", cid))
         return FakeRes({"cancelled": True})
 
-    def get_order_open(self, acct):
+    def get_order_open(self, acct, page_size=None, **kwargs):
+        self.calls.append(("open", page_size))
         return FakeRes([])
 
 
@@ -125,6 +126,7 @@ def test_broker_methods_through_fake_sdk_clients():
     assert b._trade.order_v2.calls[-1][1][0]["symbol"] == "SPY"
     assert b.cancel("c")["cancelled"] is True
     assert b.balance().net_liq == 10.0 and b.positions() == [] and b.open_orders() == []
+    assert b._trade.order_v2.calls[-1] == ("open", 100)                  # asks for a 100-row page
     assert b.bars("SPY", 5)[0].ts == "2024-01-02" and b.last_price("SPY") == 123.4
     assert wb.WebullBroker(FakeTrade(), FakeData(), environ={}).armed() is False
 
@@ -156,7 +158,7 @@ def test_positions_and_open_orders_fail_closed_on_unknown_payloads():
         wb.WebullBroker(t2, FakeData(), environ={}).positions()           # non-list, non-envelope body
 
     class NoSym(FakeOrders):
-        def get_order_open(self, acct): return FakeRes("nope")
+        def get_order_open(self, acct, page_size=None, **kwargs): return FakeRes("nope")
     t3 = FakeTrade()
     t3.order_v2 = NoSym()
     with pytest.raises(wb.BrokerError):
@@ -226,3 +228,21 @@ def test_open_orders_flatten_the_live_combo_wrapper():
         ("a", "c", "WORKING"), ("b", "c", "WORKING")] and all("orders" not in f for f in flat)
     with pytest.raises(wb.BrokerError, match="without a symbol"):    # a wrapper whose legs are unreadable
         wb.open_order_from_row({"combo_type": "NORMAL", "combo_order_id": "c", "orders": None})
+
+
+def test_a_full_page_of_open_orders_is_refused():
+    row = {"client_order_id": "c", "symbol": "SPY", "side": "BUY", "order_type": "LIMIT", "quantity": "1",
+           "limit_price": "1"}
+
+    class Full(FakeOrders):
+        def __init__(self, n):
+            super().__init__()
+            self.n = n
+        def get_order_open(self, acct, page_size=None, **kwargs):
+            return FakeRes([dict(row, client_order_id=f"c{i}") for i in range(self.n)])
+    t = FakeTrade()
+    t.order_v2 = Full(100)
+    with pytest.raises(wb.BrokerError, match="100 rows returned .* refusing to trade on a partial view"):
+        wb.WebullBroker(t, FakeData(), environ={}).open_orders()
+    t.order_v2 = Full(99)
+    assert len(wb.WebullBroker(t, FakeData(), environ={}).open_orders()) == 99
