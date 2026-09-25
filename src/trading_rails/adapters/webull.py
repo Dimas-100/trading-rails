@@ -171,8 +171,8 @@ class WebullBroker:
     def from_env(cls, environ=None) -> "WebullBroker":
         environ = os.environ if environ is None else environ
         try:
-            from dotenv import find_dotenv, load_dotenv
-            load_dotenv(find_dotenv(usecwd=True))
+            from dotenv import load_dotenv
+            load_dotenv(Path.cwd() / ".env")      # exactly the CWD's .env: never a parent directory's
         except ImportError:
             pass
         try:

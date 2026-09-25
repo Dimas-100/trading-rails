@@ -177,3 +177,24 @@ def test_place_refuses_when_not_armed():
     with pytest.raises(wb.BrokerError, match="not armed"):
         b.place(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET))
     assert b._trade.order_v2.calls == []
+
+
+def test_from_env_loads_only_the_cwd_dotenv_never_a_parent(tmp_path, monkeypatch):
+    pytest.importorskip("dotenv")
+    pytest.importorskip("webull.core")
+    import os
+    key = "RAILS_TEST_DOTENV_SENTINEL"
+    child = tmp_path / "child"
+    child.mkdir()
+    (tmp_path / ".env").write_text(f"{key}=parent\n")
+    monkeypatch.chdir(child)
+    try:
+        with pytest.raises(wb.BrokerError, match="WEBULL_APP_KEY"):
+            wb.WebullBroker.from_env(environ={})
+        assert key not in os.environ                        # the parent directory's .env was not read
+        (child / ".env").write_text(f"{key}=cwd\n")
+        with pytest.raises(wb.BrokerError, match="WEBULL_APP_KEY"):
+            wb.WebullBroker.from_env(environ={})
+        assert os.environ.get(key) == "cwd"                 # the working directory's .env was
+    finally:
+        os.environ.pop(key, None)
