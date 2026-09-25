@@ -18,6 +18,9 @@ from .safety import OrderValidationError, should_submit, validate_order
 from .strategy import Strategy
 
 AskFn = Callable[[Order, str], bool]
+# submit() outcomes after which an entry holds its slot: the order was placed, or it validated and was stopped
+# only by a wall (dry-run / refused / declined), so a preview counts the entries a live run would make.
+SLOT_TAKING = frozenset({"placed", "dry-run", "refused", "declined"})
 
 
 @dataclass
@@ -92,8 +95,9 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
             log(symbol, "protect", "unprotected", json.dumps(rresult.raw, default=str)[:500], restore)
             report.unprotected += 1
 
-    def submit(symbol: str, step: str, order: Order, last: float, cancel_first: dict | None = None) -> bool:
-        """validate -> preview -> gate -> ask -> (cancel) -> place. Returns True when placed.
+    def submit(symbol: str, step: str, order: Order, last: float, cancel_first: dict | None = None) -> str:
+        """validate -> preview -> gate -> ask -> (cancel) -> place. Returns the outcome: "placed", "not-placed",
+        "dry-run", "refused", "declined", "invalid", "not-cancelled" or "error".
         `cancel_first`, when given, is the WHOLE resting stop's open-order row (not just its id): a
         refused/raising cancel skips the SELL entirely (no double exit, logged 'not-cancelled'); a SELL
         that then fails or raises after a successful cancel triggers restore_stop so the stop comes back."""
@@ -102,7 +106,7 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                            max_notional=config.max_order_notional)
         except OrderValidationError as exc:
             log(symbol, step, "invalid", str(exc), order)
-            return False
+            return "invalid"
         preview = broker.preview(order)
         text = f"{describe(order)} (last {last:.2f}, ~${order.quantity * last:,.2f})"
         log(symbol, step, "preview", text, order, preview)
@@ -115,11 +119,11 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                 report.refused += decision == "refused"
             report.dry_run += decision == "dry-run"
             report.refused += decision == "refused"
-            return False
+            return decision
         if ask is not None and ask(order, text) is not True:
             log(symbol, step, "declined", text, order)
             report.declined += 1
-            return False
+            return "declined"
 
         if cancel_first:
             cid = cancel_first["client_order_id"]
@@ -128,11 +132,11 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
             except Exception as exc:
                 log(symbol, "cancel", "not-cancelled", f"{type(exc).__name__}: {exc}")
                 report.skipped += 1
-                return False
+                return "not-cancelled"
             if isinstance(res, dict) and not res.get("cancelled", True):
                 log(symbol, "cancel", "not-cancelled", json.dumps(res, default=str)[:500])
                 report.skipped += 1
-                return False
+                return "not-cancelled"
             log(symbol, "cancel", "cancelled", cid, None, res)
 
         try:
@@ -141,15 +145,15 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
             log(symbol, step, "error", f"{type(exc).__name__}: {exc}", order)
             if cancel_first:
                 restore_stop(symbol, cancel_first, last)
-            return False
+            return "error"
         if result.placed:
             report.placed += 1
             log(symbol, step, "placed", result.order_id or "", order, result.raw)
-            return True
+            return "placed"
         log(symbol, step, "not-placed", json.dumps(result.raw, default=str)[:500], order, result.raw)
         if cancel_first:
             restore_stop(symbol, cancel_first, last)
-        return False
+        return "not-placed"
 
     if hasattr(broker, "sync"):
         broker.sync(as_of)
@@ -205,7 +209,7 @@ def execute(config: RunConfig, strategy: Strategy, broker: Broker, source: BarSo
                     log(symbol, "entry", "skipped", f"quantity 0 at last {last}")
                     continue
                 order = Order(symbol=symbol, side=Side.BUY, quantity=qty, order_type=OrderType.MARKET)
-                if submit(symbol, "entry", order, last):
+                if submit(symbol, "entry", order, last) in SLOT_TAKING:
                     slots_used += 1
         except Exception as exc:  # a broker/data failure on one symbol must not abort the cycle
             report.errors += 1

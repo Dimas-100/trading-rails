@@ -35,7 +35,9 @@ wall inside the adapter.
    "resolve manually") rather than cancelling one and leaving another working behind the SELL.
 2. **Protect** — holding, no resting stop, the strategy carries a stop level: a STOP SELL GTC.
 3. **Entry** — not holding, the strategy says BUY, a slot is free: a MARKET BUY sized
-   `floor(dollars_per_position / last_price)`.
+   `floor(dollars_per_position / last_price)`. A validated entry that a wall stopped (dry-run, refused,
+   declined) still holds its slot for the rest of the cycle, so a preview never shows more entries than a
+   confirmed run would make.
 
 ## Exit-path failure handling
 

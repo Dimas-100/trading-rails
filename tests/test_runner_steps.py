@@ -114,3 +114,17 @@ def test_broker_error_on_one_symbol_does_not_abort_the_cycle(tmp_path):
     rows = [json.loads(line) for line in log.read_text().splitlines()]
     assert any(r["status"] == "error" and r["symbol"] == "AAA" for r in rows)
     assert all("ts" in r and "as_of" in r for r in rows)
+
+
+def test_dry_run_entries_consume_slots_so_a_preview_never_overstates_entries():
+    b = Spy()
+    strat = PerSymbol({tag("AAA"): Signal(Side.BUY, None, ""), tag("BBB"): Signal(Side.BUY, None, "")})
+    rep = execute(cfg(max_positions=1), strat, b, Bars({"AAA": 100.0, "BBB": 100.0}), confirm=False, log_path=None)
+    previews = [c[1] for c in b.calls if c[0] == "preview"]
+    assert [o.symbol for o in previews] == ["AAA"] and b.placed() == []
+    assert rep.dry_run == 1 and any(r["symbol"] == "BBB" and "no free slots" in r["detail"] for r in rep.rows)
+
+
+def test_submit_outcomes_that_hold_a_slot():
+    from trading_rails.runner import SLOT_TAKING
+    assert SLOT_TAKING == {"placed", "dry-run", "refused", "declined"}
