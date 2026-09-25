@@ -246,3 +246,11 @@ def test_a_full_page_of_open_orders_is_refused():
         wb.WebullBroker(t, FakeData(), environ={}).open_orders()
     t.order_v2 = Full(99)
     assert len(wb.WebullBroker(t, FakeData(), environ={}).open_orders()) == 99
+
+
+def test_a_present_but_unparseable_quantity_raises_instead_of_reading_flat():
+    with pytest.raises(wb.BrokerError, match="unparseable quantity"):
+        wb.position_from_row({"symbol": "X", "quantity": "abc"})
+    assert wb.position_from_row({"symbol": "X", "quantity": ""}) is None       # empty is genuinely nothing
+    assert wb.position_from_row({"symbol": "X", "quantity": "0"}) is None
+    assert wb.position_from_row({"symbol": "X", "quantity": "2"}).quantity == 2

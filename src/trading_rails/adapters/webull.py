@@ -85,7 +85,10 @@ def _leg(row: dict) -> dict:
 def position_from_row(row: dict) -> Position | None:
     r = _leg(row)
     symbol = _str(r, ["symbol", "ticker"]).upper()
-    qty = _num(r, ["quantity", "qty", "position", "shares"])
+    qty_keys = ["quantity", "qty", "position", "shares"]
+    qty = _num(r, qty_keys)
+    if qty is None and any(r.get(k) not in (None, "") for k in qty_keys):
+        raise BrokerError(f"position row with unparseable quantity: {row}")   # unknown is never "flat"
     if not qty or qty <= 0:
         return None
     if not symbol:
