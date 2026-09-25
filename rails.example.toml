@@ -1,0 +1,25 @@
+# Copy to rails.toml. Every value here is a demo default, not a recommendation.
+[run]
+symbols = ["SPY", "QQQ", "IWM"]
+dollars_per_position = 1000        # fixed dollars per entry; quantity = floor(dollars / last price)
+max_positions = 2                  # open positions + working entries
+max_order_notional = 1500          # per-order hard cap checked by safety.validate_order
+max_price_deviation = 0.20         # fat-finger guard for limit/stop prices vs last price
+bars_lookback = 250                # bars handed to the strategy each cycle (backtest uses the same)
+
+[strategy]
+name = "sma_cross"                 # rails backtest --list shows the registry
+fast = 20
+slow = 50
+atr_period = 14
+atr_mult = 2.0
+
+[data]
+source = "synthetic"               # "synthetic" | "csv:PATH" (dir of SYMBOL.csv or one file with a symbol column)
+
+[paper]
+starting_cash = 100000
+state_path = "data/paper.json"
+
+[log]
+path = "data/runs.jsonl"
