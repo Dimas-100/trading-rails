@@ -29,6 +29,9 @@ rails run --config rails.toml --paper --as-of 2018-05-04
 rails paper status --config rails.toml
 ```
 
+The backtest sizes each trade from all equity by default; for paper and backtest to agree, pass
+`rails backtest --dollars` equal to `dollars_per_position`.
+
 `--as-of` replays the paper account one day at a time on the synthetic series. `2018-05-03` / `2018-05-04` are
 consecutive trading days on the seeded synthetic series (`rails.example.toml`'s default symbols, seed and
 `sma_cross` 20/50 settings): the first is the earliest day any symbol (IWM) gets a BUY signal, so the first
