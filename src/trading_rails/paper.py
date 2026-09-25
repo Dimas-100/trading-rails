@@ -1,6 +1,6 @@
 """PaperBroker: an in-memory, JSON-persisted simulator that implements the Broker protocol.
-It cannot reach money, so it is always armed. Fills come from fills.fill_price against the newest
-bar of its BarSource, so a paper run and a backtest agree on every fill."""
+It cannot reach money, so it is always armed. Fills come from fills.fill_price against each bar of its
+BarSource after the order was placed, walked in order, so a paper run and a backtest agree on every fill."""
 from __future__ import annotations
 
 import json
@@ -8,8 +8,10 @@ from pathlib import Path
 
 from .broker import OPEN_ORDER_KEYS, BarSource
 from .fills import CostModel, fill_price
-from .models import Balance, Fill, Order, OrderType, PlaceResult, Position, Side, TimeInForce
+from .models import Balance, Bar, Fill, Order, OrderType, PlaceResult, Position, Side, TimeInForce
 from .safety import OrderValidationError, validate_order
+
+SYNC_BARS = 500   # bars fetched per symbol per sync: the window an open order is walked through
 
 
 class PaperBroker:
@@ -129,20 +131,32 @@ class PaperBroker:
 
     # ── simulation ─────────────────────────────────────────────────────────────
     def sync(self, as_of: str | None = None) -> list[Fill]:
-        """Fill/expire open orders against each symbol's newest bar (only a bar newer than after_ts)."""
+        """Fill/expire open orders by walking, in order, every bar newer than each order's after_ts (up to
+        as_of): the first bar that fills the order fills it there; a DAY order that meets its first newer bar
+        without filling expires on it; a GTC order keeps walking. Skipping days therefore never misses a stop.
+        Bars are fetched once per symbol per sync."""
         self._as_of = as_of
         fills: list[Fill] = []
+        window: dict[str, list[Bar]] = {}
         for cid, o in list(self._state["open_orders"].items()):
-            newest = self._source.bars(o["symbol"], 1, as_of)
-            if not newest or newest[-1].ts <= o["after_ts"]:
+            if o["symbol"] not in window:
+                window[o["symbol"]] = self._source.bars(o["symbol"], SYNC_BARS, as_of)
+            newer = [b for b in window[o["symbol"]] if b.ts > o["after_ts"]]
+            if not newer:
                 continue
-            bar = newest[-1]
             order = Order(symbol=o["symbol"], side=Side(o["side"]), quantity=int(o["quantity"]),
                           order_type=OrderType(o["order_type"]), limit_price=o["limit_price"],
                           stop_price=o["stop_price"], time_in_force=TimeInForce(o["time_in_force"]),
                           client_order_id=cid)
-            price = fill_price(order, bar, self._cost)
-            if price is None:
+            bar, price = None, None
+            for candidate in newer:
+                price = fill_price(order, candidate, self._cost)
+                if price is not None:
+                    bar = candidate
+                    break
+                if o["time_in_force"] == "DAY":
+                    break
+            if bar is None:
                 if o["time_in_force"] == "DAY":
                     del self._state["open_orders"][cid]
                 continue

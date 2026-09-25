@@ -126,3 +126,49 @@ def test_buy_gap_up_beyond_cash_is_rejected_at_fill_not_filled_negative(tmp_path
     assert fills == [] and b.positions() == [] and b.open_orders() == []
     assert b.balance().cash == 1000.0
     assert b.state_view()["rejected"][0]["reason"].startswith("insufficient cash at fill")
+
+
+def test_a_skipped_day_fills_on_the_first_newer_bar_not_the_newest(tmp_path):
+    b = broker(tmp_path)
+    b.sync(as_of="2024-01-02")
+    assert b.place(Order(symbol="SPY", side=Side.BUY, quantity=10, order_type=OrderType.MARKET)).placed
+    fills = b.sync(as_of="2024-01-04")                     # 01-03 was never synced
+    assert len(fills) == 1 and fills[0].price == 102.0 and fills[0].ts == "2024-01-03"   # not 01-04's 95
+    assert b.state_view()["fills"][0]["ts"] == "2024-01-03"
+
+
+def test_a_gtc_stop_is_not_missed_when_the_triggering_day_is_skipped(tmp_path):
+    src = Seq(BARS + [Bar("2024-01-05", 100, 100, 100, 100)])
+    b = PaperBroker(src, tmp_path / "paper.json", starting_cash=10_000.0)
+    b.sync(as_of="2024-01-02")
+    b.place(Order(symbol="SPY", side=Side.BUY, quantity=10, order_type=OrderType.MARKET))
+    b.sync(as_of="2024-01-03")
+    stop = Order(symbol="SPY", side=Side.SELL, quantity=10, order_type=OrderType.STOP, stop_price=98.0,
+                 time_in_force=TimeInForce.GTC)
+    assert b.place(stop).placed
+    fills = b.sync(as_of="2024-01-05")                     # 01-04 (low 90) was skipped; 01-05 never trades <= 98
+    assert len(fills) == 1 and fills[0].price == 95.0 and fills[0].ts == "2024-01-04"
+    assert b.positions() == [] and b.open_orders() == []
+
+
+def test_a_day_order_expires_on_its_first_newer_bar_even_if_a_later_one_would_fill(tmp_path):
+    b = broker(tmp_path)
+    b.sync(as_of="2024-01-02")
+    b.place(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.LIMIT, limit_price=95.0))
+    assert b.sync(as_of="2024-01-04") == []                # 01-03 misses 95 -> expired; 01-04's low 90 is too late
+    assert b.open_orders() == [] and b.positions() == []
+
+
+def test_sync_fetches_bars_once_per_symbol(tmp_path):
+    class Counting(Seq):
+        calls = 0
+        def bars(self, symbol, n, as_of=None):
+            if n > 1:
+                Counting.calls += 1
+            return super().bars(symbol, n, as_of)
+    b = PaperBroker(Counting(BARS), tmp_path / "paper.json", starting_cash=10_000.0)
+    b.sync(as_of="2024-01-02")
+    for _ in range(3):
+        b.place(Order(symbol="SPY", side=Side.BUY, quantity=1, order_type=OrderType.MARKET))
+    Counting.calls = 0
+    assert len(b.sync(as_of="2024-01-03")) == 3 and Counting.calls == 1
