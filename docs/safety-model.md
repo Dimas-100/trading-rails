@@ -54,7 +54,8 @@ The cancel-then-sell sequence is deliberately conservative about a position's pr
   silently drops the position's protection.
 - If that re-place **also** fails or raises, the runner logs `protect unprotected` and increments
   `CycleReport.unprotected` — the one failure mode the runner cannot self-heal — which surfaces in the
-  `placed=... unprotected=...` summary line printed by `rails run` so it is never swallowed quietly.
+  `placed=... unprotected=...` summary line printed by `rails run` and makes it exit 2 (any symbol error
+  exits 1), so it is never swallowed quietly.
 
 ## `PlaceResult.placed`
 
